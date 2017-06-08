@@ -30,14 +30,16 @@ var (
 )
 
 type Comment struct {
-	ID         int    `json:"id"`
-	Author     string `json:"author"`
-	Comment    string `json:"comment"`
-	EntryTime  int    `json:"entry_time"`
-	EntryType  int    `json:"entry_type"`
-	ExpireTime int    `json:"expire_time"`
-	Expires    bool   `json:"expires"`
-	Type       int    `json:"type"`
+	ID                 int    `json:"id"`
+	Author             string `json:"author"`
+	Comment            string `json:"comment"`
+	EntryTime          int    `json:"entry_time"`
+	EntryType          int    `json:"entry_type"`
+	ExpireTime         int    `json:"expire_time"`
+	Expires            bool   `json:"expires"`
+	Type               int    `json:"type"`
+	HostName           string `json:"host_name"`
+	ServiceDescription string `json:"service_description"`
 }
 
 func (c *Comment) UnmarshalJSON(b []byte) (err error) {
@@ -56,6 +58,8 @@ func (c *Comment) UnmarshalJSON(b []byte) (err error) {
 	c.ExpireTime = int(tmp[5].(float64))
 	c.Expires = tmp[6].(float64) != 0
 	c.Type = int(tmp[7].(float64))
+	c.HostName = tmp[8].(string)
+	c.ServiceDescription = tmp[9].(string)
 
 	return nil
 }
@@ -94,15 +98,17 @@ func (c *Contact) UnmarshalJSON(b []byte) (err error) {
 }
 
 type Downtime struct {
-	ID        int    `json:"id"`
-	Author    string `json:"author"`
-	Comment   string `json:"comment"`
-	Duration  int    `json:"duration"`
-	StartTime int    `json:"start_time"`
-	EndTime   int    `json:"end_time"`
-	EntryTime int    `json:"entry_time"`
-	Fixed     bool   `json:"fixed"`
-	Type      int    `json:"type"`
+	ID                 int    `json:"id"`
+	Author             string `json:"author"`
+	Comment            string `json:"comment"`
+	Duration           int    `json:"duration"`
+	StartTime          int    `json:"start_time"`
+	EndTime            int    `json:"end_time"`
+	EntryTime          int    `json:"entry_time"`
+	Fixed              bool   `json:"fixed"`
+	Type               int    `json:"type"`
+	HostName           string `json:"host_name"`
+	ServiceDescription string `json:"service_description"`
 }
 
 func (d *Downtime) UnmarshalJSON(b []byte) (err error) {
@@ -122,6 +128,8 @@ func (d *Downtime) UnmarshalJSON(b []byte) (err error) {
 	d.EntryTime = int(tmp[6].(float64))
 	d.Fixed = tmp[7].(float64) != 0
 	d.Type = int(tmp[8].(float64))
+	d.HostName = tmp[9].(string)
+	d.ServiceDescription = tmp[9].(string)
 
 	return nil
 }
@@ -167,6 +175,7 @@ type Host struct {
 	NumberServicesPending      int      `json:"number_of_services_pending"`
 	State                      int      `json:"state"`
 	StateType                  int      `json:"state_type"`
+	Services                   []string `json:"services"`
 }
 
 func (h *Host) UnmarshalJSON(b []byte) (err error) {
@@ -229,6 +238,10 @@ func (h *Host) UnmarshalJSON(b []byte) (err error) {
 	h.NumberServicesPending = int(tmp[37].(float64))
 	h.State = int(tmp[38].(float64))
 	h.StateType = int(tmp[39].(float64))
+	h.Services = make([]string, len(tmp[40].([]interface{})))
+	for i := range tmp[40].([]interface{}) {
+		h.Services[i] = tmp[40].([]interface{})[i].(string)
+	}
 
 	return nil
 }
@@ -267,7 +280,7 @@ type Service struct {
 	NotificationsEnabled bool     `json:"notifications_enabled"`
 	State                int      `json:"state"`
 	StateType            int      `json:"state_type"`
-	HostID               int      `json:"host_id"`
+	HostName             string   `json:"host"`
 }
 
 func (s *Service) UnmarshalJSON(b []byte) (err error) {
@@ -323,7 +336,7 @@ func (s *Service) UnmarshalJSON(b []byte) (err error) {
 	s.NotificationsEnabled = tmp[30].(float64) != 0
 	s.State = int(tmp[31].(float64))
 	s.StateType = int(tmp[32].(float64))
-	s.HostID = int(tmp[33].(float64))
+	s.HostName = tmp[33].(string)
 
 	return nil
 }
@@ -339,6 +352,16 @@ func parseID(s string) (id int, err error) {
 		return 0, errors.New("Invalid URL")
 	}
 	return id, nil
+}
+
+func parseString(s string) (name string, err error) {
+	p := strings.LastIndex(s, "/")
+	if p < 0 {
+		return "", errors.New("Invalid URL")
+	}
+
+	name = s[p+1:]
+	return name, nil
 }
 
 func query(q string) (io.ReadCloser, error) {
@@ -363,7 +386,7 @@ func query(q string) (io.ReadCloser, error) {
 
 func returnAllComments(w http.ResponseWriter, r *http.Request) {
 	var comments []Comment
-	raw, err := query("GET comments\nColumns:id author comment entry_time entry_type expire_time expires type")
+	raw, err := query("GET comments\nColumns:id author comment entry_time entry_type expire_time expires type host_name service_description")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -380,7 +403,7 @@ func returnComment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var comments []Comment
-	raw, err := query(fmt.Sprintf("GET comments\nFilter: id = %d\nColumns:id author comment entry_time entry_type expire_time expires type", id))
+	raw, err := query(fmt.Sprintf("GET comments\nFilter: id = %d\nColumns:id author comment entry_time entry_type expire_time expires type host_name service_description", id))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -431,7 +454,7 @@ func returnContact(w http.ResponseWriter, r *http.Request) {
 
 func returnAllDowntimes(w http.ResponseWriter, r *http.Request) {
 	var downtimes []Downtime
-	raw, err := query("GET downtimes\nColumns:id author comment duration start_time end_time entry_time fixed type")
+	raw, err := query("GET downtimes\nColumns:id author comment duration start_time end_time entry_time fixed type host_name service_description")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -448,7 +471,7 @@ func returnDowntime(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var downtimes []Downtime
-	raw, err := query(fmt.Sprintf("GET downtimes\nFilter: id = %d\nColumns:id author comment duration start_time end_time entry_time fixed type", id))
+	raw, err := query(fmt.Sprintf("GET downtimes\nFilter: id = %d\nColumns:id author comment duration start_time end_time entry_time fixed type host_name service_description", id))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -465,7 +488,7 @@ func returnDowntime(w http.ResponseWriter, r *http.Request) {
 
 func returnAllHosts(w http.ResponseWriter, r *http.Request) {
 	var hosts []Host
-	raw, err := query("GET hosts\nColumns:id name alias acknowledged address check_period check_source checks_enabled comments contacts downtimes event_handler event_handler_enabled execution_time flap_detection_enabled groups hard_state has_been_checked in_check_period in_notification_period is_flapping last_check last_notification last_state_change last_time_down last_time_unreachable last_time_up latency next_check next_notification notification_period notifications_enabled num_services num_services_hard_crit num_services_hard_ok num_services_hard_unknown num_services_hard_warn num_services_pending state state_type")
+	raw, err := query("GET hosts\nColumns:id name alias acknowledged address check_period check_source checks_enabled comments contacts downtimes event_handler event_handler_enabled execution_time flap_detection_enabled groups hard_state has_been_checked in_check_period in_notification_period is_flapping last_check last_notification last_state_change last_time_down last_time_unreachable last_time_up latency next_check next_notification notification_period notifications_enabled num_services num_services_hard_crit num_services_hard_ok num_services_hard_unknown num_services_hard_warn num_services_pending state state_type services")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -476,13 +499,13 @@ func returnAllHosts(w http.ResponseWriter, r *http.Request) {
 }
 
 func returnHost(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r.URL.Path)
+	name, err := parseString(r.URL.Path)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	var hosts []Host
-	raw, err := query(fmt.Sprintf("GET hosts\nFilter: id = %d\nColumns:id name alias acknowledged address check_period check_source checks_enabled comments contacts downtimes event_handler event_handler_enabled execution_time flap_detection_enabled groups hard_state has_been_checked in_check_period in_notification_period is_flapping last_check last_notification last_state_change last_time_down last_time_unreachable last_time_up latency next_check next_notification notification_period notifications_enabled num_services num_services_hard_crit num_services_hard_ok num_services_hard_unknown num_services_hard_warn num_services_pending state state_type", id))
+	raw, err := query(fmt.Sprintf("GET hosts\nFilter: name = %s\nColumns:id name alias acknowledged address check_period check_source checks_enabled comments contacts downtimes event_handler event_handler_enabled execution_time flap_detection_enabled groups hard_state has_been_checked in_check_period in_notification_period is_flapping last_check last_notification last_state_change last_time_down last_time_unreachable last_time_up latency next_check next_notification notification_period notifications_enabled num_services num_services_hard_crit num_services_hard_ok num_services_hard_unknown num_services_hard_warn num_services_pending state state_type services", name))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -499,7 +522,7 @@ func returnHost(w http.ResponseWriter, r *http.Request) {
 
 func returnAllServices(w http.ResponseWriter, r *http.Request) {
 	var services []Service
-	raw, err := query("GET services\nColumns:id acknowledged check_period check_source check_type checks_enabled comments contacts description downtimes event_handler event_handler_enabled execution_time flap_detection_enabled groups has_been_checked in_check_period in_notification_period is_flapping last_check last_notification last_state_change last_time_critical last_time_ok last_time_unknown last_time_warning latency next_check next_notification notification_period notifications_enabled state state_type host_id")
+	raw, err := query("GET services\nColumns:id acknowledged check_period check_source check_type checks_enabled comments contacts description downtimes event_handler event_handler_enabled execution_time flap_detection_enabled groups has_been_checked in_check_period in_notification_period is_flapping last_check last_notification last_state_change last_time_critical last_time_ok last_time_unknown last_time_warning latency next_check next_notification notification_period notifications_enabled state state_type host_name")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -510,13 +533,13 @@ func returnAllServices(w http.ResponseWriter, r *http.Request) {
 }
 
 func returnService(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r.URL.Path)
+	name, err := parseString(r.URL.Path)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	var services []Service
-	raw, err := query(fmt.Sprintf("GET services\nFilter: id = %d\nColumns:id acknowledged check_period check_source check_type checks_enabled comments contacts description downtimes event_handler event_handler_enabled execution_time flap_detection_enabled groups has_been_checked in_check_period in_notification_period is_flapping last_check last_notification last_state_change last_time_critical last_time_ok last_time_unknown last_time_warning latency next_check next_notification notification_period notifications_enabled state state_type host_id", id))
+	raw, err := query(fmt.Sprintf("GET services\nFilter: description = %s\nColumns:id acknowledged check_period check_source check_type checks_enabled comments contacts description downtimes event_handler event_handler_enabled execution_time flap_detection_enabled groups has_been_checked in_check_period in_notification_period is_flapping last_check last_notification last_state_change last_time_critical last_time_ok last_time_unknown last_time_warning latency next_check next_notification notification_period notifications_enabled state state_type host_name", name))
 	if err != nil {
 		log.Fatal(err)
 	}

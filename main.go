@@ -45,7 +45,7 @@ func (c *Comment) UnmarshalJSON(b []byte) (err error) {
 	var tmp []interface{}
 	err = json.Unmarshal(b, &tmp)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Error: Unmarshalling JSON for Comment object with error: %s", err)
 		return err
 	}
 
@@ -79,7 +79,7 @@ func (c *Contact) UnmarshalJSON(b []byte) (err error) {
 	var tmp []interface{}
 	err = json.Unmarshal(b, &tmp)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Error: Unmarshalling JSON for Contact object with error: %s", err)
 		return err
 	}
 
@@ -114,7 +114,7 @@ func (d *Downtime) UnmarshalJSON(b []byte) (err error) {
 	var tmp []interface{}
 	err = json.Unmarshal(b, &tmp)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Error: Unmarshalling JSON for Downtime object with error: %s", err)
 		return err
 	}
 
@@ -181,7 +181,7 @@ func (h *Host) UnmarshalJSON(b []byte) (err error) {
 	var tmp []interface{}
 	err = json.Unmarshal(b, &tmp)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Error: Unmarshalling JSON for Host object with error: %s", err)
 		return err
 	}
 
@@ -286,7 +286,7 @@ func (s *Service) UnmarshalJSON(b []byte) (err error) {
 	var tmp []interface{}
 	err = json.Unmarshal(b, &tmp)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Error: Unmarshalling JSON for Service object with error: %s", err)
 		return err
 	}
 
@@ -340,19 +340,27 @@ func (s *Service) UnmarshalJSON(b []byte) (err error) {
 	return nil
 }
 
+type Status struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
 func query(q string) (io.ReadCloser, error) {
 	f, err := net.DialTimeout("unix", *socket, *timeout)
 	if err != nil {
+		log.Printf("Error: Could not connect to unix socket: %s", err)
 		return nil, err
 	}
 	if err := f.SetDeadline(time.Now().Add(*timeout)); err != nil {
 		f.Close()
+		log.Printf("Error: Connection to unix socket timed out: %s", err)
 		return nil, err
 	}
 
 	//cmd := "GET contacts\nColumns:id name alias email pager host_notification_period host_notifications_enabled service_notification_period service_notifications_enabled\nOutputFormat: json\n\n"
 	_, err = io.WriteString(f, q+"\nOutputFormat: json\n\n")
 	if err != nil {
+		log.Printf("Error: Could not query Livestatus: %s", err)
 		f.Close()
 		return nil, err
 	}
@@ -365,11 +373,21 @@ func getComments(w http.ResponseWriter, r *http.Request) {
 
 	raw, err := query("GET comments\nColumns:id author comment entry_time entry_type expire_time expires type host_name service_description")
 	if err != nil {
-		log.Fatal(err)
+		s := Status{Code: 500, Message: "Could not query Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
 	}
 	defer raw.Close()
 
 	err = json.NewDecoder(raw).Decode(&comments)
+	if err != nil {
+		s := Status{Code: 500, Message: "Could not decode response from Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
+	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(comments)
 }
 
@@ -379,16 +397,28 @@ func getComment(w http.ResponseWriter, r *http.Request) {
 
 	raw, err := query(fmt.Sprintf("GET comments\nFilter: id = %s\nColumns:id author comment entry_time entry_type expire_time expires type host_name service_description", vars["id"]))
 	if err != nil {
-		log.Fatal(err)
+		s := Status{Code: 500, Message: "Could not query Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
 	}
 	defer raw.Close()
 
 	err = json.NewDecoder(raw).Decode(&comments)
+	if err != nil {
+		s := Status{Code: 500, Message: "Could not decode response from Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
+	}
 	if len(comments) > 0 {
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(comments[0])
 	} else {
+		s := Status{Code: 404, Message: "Comment not found"}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte("404 - Comment not found"))
+		json.NewEncoder(w).Encode(s)
 	}
 }
 
@@ -397,11 +427,21 @@ func getContacts(w http.ResponseWriter, r *http.Request) {
 
 	raw, err := query("GET contacts\nColumns:id name alias email pager host_notification_period host_notifications_enabled service_notification_period service_notifications_enabled")
 	if err != nil {
-		log.Fatal(err)
+		s := Status{Code: 500, Message: "Could not query Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
 	}
 	defer raw.Close()
 
 	err = json.NewDecoder(raw).Decode(&contacts)
+	if err != nil {
+		s := Status{Code: 500, Message: "Could not decode response from Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
+	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(contacts)
 }
 
@@ -411,16 +451,28 @@ func getContact(w http.ResponseWriter, r *http.Request) {
 
 	raw, err := query(fmt.Sprintf("GET contacts\nFilter: name = %s\nColumns:id name alias email pager host_notification_period host_notifications_enabled service_notification_period service_notifications_enabled", vars["name"]))
 	if err != nil {
-		log.Fatal(err)
+		s := Status{Code: 500, Message: "Could not query Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
 	}
 	defer raw.Close()
 
 	err = json.NewDecoder(raw).Decode(&contacts)
+	if err != nil {
+		s := Status{Code: 500, Message: "Could not decode response from Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
+	}
 	if len(contacts) > 0 {
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(contacts[0])
 	} else {
+		s := Status{Code: 404, Message: "Contact not found"}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte("404 - Contact not found"))
+		json.NewEncoder(w).Encode(s)
 	}
 }
 
@@ -429,11 +481,21 @@ func getDowntimes(w http.ResponseWriter, r *http.Request) {
 
 	raw, err := query("GET downtimes\nColumns:id author comment duration start_time end_time entry_time fixed type host_name service_description")
 	if err != nil {
-		log.Fatal(err)
+		s := Status{Code: 500, Message: "Could not query Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
 	}
 	defer raw.Close()
 
 	err = json.NewDecoder(raw).Decode(&downtimes)
+	if err != nil {
+		s := Status{Code: 500, Message: "Could not decode response from Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
+	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(downtimes)
 }
 
@@ -443,16 +505,28 @@ func getDowntime(w http.ResponseWriter, r *http.Request) {
 
 	raw, err := query(fmt.Sprintf("GET downtimes\nFilter: id = %s\nColumns:id author comment duration start_time end_time entry_time fixed type host_name service_description", vars["id"]))
 	if err != nil {
-		log.Fatal(err)
+		s := Status{Code: 500, Message: "Could not query Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
 	}
 	defer raw.Close()
 
 	err = json.NewDecoder(raw).Decode(&downtimes)
+	if err != nil {
+		s := Status{Code: 500, Message: "Could not decode response from Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
+	}
 	if len(downtimes) > 0 {
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(downtimes[0])
 	} else {
+		s := Status{Code: 404, Message: "Downtime not found"}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte("404 - Downtime not found"))
+		json.NewEncoder(w).Encode(s)
 	}
 }
 
@@ -461,11 +535,21 @@ func getHosts(w http.ResponseWriter, r *http.Request) {
 
 	raw, err := query("GET hosts\nColumns:id name alias acknowledged address check_period check_source checks_enabled comments contacts downtimes event_handler event_handler_enabled execution_time flap_detection_enabled groups hard_state has_been_checked in_check_period in_notification_period is_flapping last_check last_notification last_state_change last_time_down last_time_unreachable last_time_up latency next_check next_notification notification_period notifications_enabled num_services num_services_hard_crit num_services_hard_ok num_services_hard_unknown num_services_hard_warn num_services_pending state state_type services")
 	if err != nil {
-		log.Fatal(err)
+		s := Status{Code: 500, Message: "Could not query Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
 	}
 	defer raw.Close()
 
 	err = json.NewDecoder(raw).Decode(&hosts)
+	if err != nil {
+		s := Status{Code: 500, Message: "Could not decode response from Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
+	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(hosts)
 }
 
@@ -475,16 +559,28 @@ func getHost(w http.ResponseWriter, r *http.Request) {
 
 	raw, err := query(fmt.Sprintf("GET hosts\nFilter: name = %s\nColumns:id name alias acknowledged address check_period check_source checks_enabled comments contacts downtimes event_handler event_handler_enabled execution_time flap_detection_enabled groups hard_state has_been_checked in_check_period in_notification_period is_flapping last_check last_notification last_state_change last_time_down last_time_unreachable last_time_up latency next_check next_notification notification_period notifications_enabled num_services num_services_hard_crit num_services_hard_ok num_services_hard_unknown num_services_hard_warn num_services_pending state state_type services", vars["name"]))
 	if err != nil {
-		log.Fatal(err)
+		s := Status{Code: 500, Message: "Could not query Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
 	}
 	defer raw.Close()
 
 	err = json.NewDecoder(raw).Decode(&hosts)
+	if err != nil {
+		s := Status{Code: 500, Message: "Could not decode response from Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
+	}
 	if len(hosts) > 0 {
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(hosts[0])
 	} else {
+		s := Status{Code: 404, Message: "Host not found"}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte("404 - Host not found"))
+		json.NewEncoder(w).Encode(s)
 	}
 }
 
@@ -493,11 +589,21 @@ func getServices(w http.ResponseWriter, r *http.Request) {
 
 	raw, err := query("GET services\nColumns:id acknowledged check_period check_source check_type checks_enabled comments contacts description downtimes event_handler event_handler_enabled execution_time flap_detection_enabled groups has_been_checked in_check_period in_notification_period is_flapping last_check last_notification last_state_change last_time_critical last_time_ok last_time_unknown last_time_warning latency next_check next_notification notification_period notifications_enabled state state_type host_name")
 	if err != nil {
-		log.Fatal(err)
+		s := Status{Code: 500, Message: "Could not query Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
 	}
 	defer raw.Close()
 
 	err = json.NewDecoder(raw).Decode(&services)
+	if err != nil {
+		s := Status{Code: 500, Message: "Could not decode response from Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
+	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(services)
 }
 
@@ -507,16 +613,28 @@ func getService(w http.ResponseWriter, r *http.Request) {
 
 	raw, err := query(fmt.Sprintf("GET services\nFilter: host_name = %s\nFilter: description = %s\nColumns:id acknowledged check_period check_source check_type checks_enabled comments contacts description downtimes event_handler event_handler_enabled execution_time flap_detection_enabled groups has_been_checked in_check_period in_notification_period is_flapping last_check last_notification last_state_change last_time_critical last_time_ok last_time_unknown last_time_warning latency next_check next_notification notification_period notifications_enabled state state_type host_name", vars["host_name"], vars["name"]))
 	if err != nil {
-		log.Fatal(err)
+		s := Status{Code: 500, Message: "Could not query Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
 	}
 	defer raw.Close()
 
 	err = json.NewDecoder(raw).Decode(&services)
+	if err != nil {
+		s := Status{Code: 500, Message: "Could not decode response from Livestatus"}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(s)
+	}
 	if len(services) > 0 {
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(services[0])
 	} else {
+		s := Status{Code: 404, Message: "Service not found"}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte("404 - Service not found"))
+		json.NewEncoder(w).Encode(s)
 	}
 }
 
